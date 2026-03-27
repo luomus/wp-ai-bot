@@ -1,0 +1,23 @@
+# Secrets – never commit
+.env
+
+# Local cache – can be large and is rebuilt automatically
+embeddings_cache.pkl
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Docker
+*.tar
+
+# IDEs
+.vscode/
+.idea/
+*.swp

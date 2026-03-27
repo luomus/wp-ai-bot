@@ -1,0 +1,26 @@
+services:
+  chatbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wp-ai-bot:latest
+    container_name: wp-ai-bot
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env                   # must exist; copy from .env.example
+    environment:
+      CACHE_DIR: /app/cache    # path inside the container; backed by the volume below
+    volumes:
+      - embeddings_cache:/app/cache   # persist embeddings across container restarts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s       # give the startup routine enough time to fetch + embed
+      retries: 3
+
+volumes:
+  embeddings_cache:
+    driver: local

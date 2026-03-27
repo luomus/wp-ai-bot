@@ -1,0 +1,22 @@
+# Keep the build context small
+
+# Secrets
+.env
+
+# Local cache (the container uses a named volume instead)
+embeddings_cache.pkl
+
+# Python byte-code and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Developer tooling
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Docs (not needed at runtime)
+README.md
