@@ -39,7 +39,8 @@ _cache_dir.mkdir(parents=True, exist_ok=True)
 CACHE_FILE = _cache_dir / "embeddings_cache.pkl"
 CHUNK_SIZE_WORDS = 400       # Target words per chunk
 CHUNK_OVERLAP_WORDS = 50     # Overlap between consecutive chunks
-TOP_K = 5                    # Number of chunks to retrieve per query
+TOP_K = int(os.environ.get("TOP_K", "5"))  # Number of chunks to retrieve per query (env configurable)
+MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.2"))  # Minimal similarity score for strong hits
 EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI embedding model
 CHAT_MODEL = "gpt-4o-mini"
 
@@ -264,6 +265,8 @@ def search(query: str, index: faiss.IndexFlatIP, chunks: list[dict], top_k: int 
 
     distances, indices = index.search(query_vec, top_k)
 
+    logger.debug("Search query=%s top_k=%d distances=%s indices=%s", query, top_k, distances[0].tolist(), indices[0].tolist())
+
     results = []
     for dist, idx in zip(distances[0], indices[0]):
         if idx == -1:
@@ -271,6 +274,11 @@ def search(query: str, index: faiss.IndexFlatIP, chunks: list[dict], top_k: int 
         chunk = chunks[idx].copy()
         chunk["score"] = float(dist)
         results.append(chunk)
+
+    if results:
+        best_score = results[0]["score"]
+        if best_score < MIN_SCORE:
+            logger.warning("Weak semantic match: best_score=%.4f for query='%s'", best_score, query)
 
     return results
 
@@ -300,7 +308,7 @@ def generate_answer(query: str, relevant_chunks: list[dict]) -> AnswerResponse:
     system_prompt = (
         "Olet avulias assistentti, joka vastaa kysymyksiin AINOASTAAN alla olevan kontekstin perusteella. "
         "Vastaa aina suomeksi. "
-        "Jos et löydä vastausta annetusta kontekstista, sano täsmälleen: 'En tiedä'. "
+        "Jos et löydä vastausta annetusta kontekstista, sano täsmälleen: 'En tiedä, mutta ehkä seuraavat sivut auttavat: '. "
         "Älä keksi tietoja, joita ei ole kontekstissa. "
         "Viittaa lähteisiin luonnollisesti vastauksessasi."
     )

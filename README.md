@@ -61,26 +61,6 @@ the API. Subsequent starts load from the `embeddings_cache` volume instantly.
 curl "http://localhost:8000/ask?q=Mikä+on+kotka?"
 ```
 
-#### Useful Compose commands
-
-```powershell
-# Run in the background
-docker compose up -d --build
-
-# Follow logs
-docker compose logs -f
-
-# Stop
-docker compose down
-
-# Stop AND delete the embeddings volume (forces full rebuild next time)
-docker compose down -v
-
-# Force re-fetch + re-embed without restarting the whole stack
-curl -X POST http://localhost:8000/refresh
-```
-
----
 
 ## API reference
 
@@ -96,10 +76,29 @@ curl "http://localhost:8000/ask?q=Mikä+on+laji.fi?"
 
 ```json
 {
-  "answer": "Laji.fi on …",
-  "sources": [
-    { "title": "Etusivu", "url": "https://info.laji.fi/" }
-  ]
+    "answer": "Kotka on Luomuksen ja Suomen Lajitietokeskuksen rakentama luonnontieteellisten näytekokoelmien hallintajärjestelmä, joka palvelee kaikkia eliöryhmiä, kudosnäytteitä, fossiileja sekä kasvitieteellisten puutarhojen eläviä kokoelmia. Järjestelmää on kehitetty vuodesta 2012 ja se on ollut tuotantokäytössä syksystä 2012 alkaen. Kotka on käytössä lähes kaikissa suomalaisissa luonnontieteellisissä museoissa ja se tarjoaa monia toiminnallisuuksia, kuten näytedatan tallennusta, hakua, lainojen hallintaa ja raportointia. Lisätietoja löytyy osoitteesta [Kotka-kokoelmienhallintajärjestelmä](https://info.laji.fi/etusivu/kotka-kokoelmienhallintajarjestelma/).",
+    "sources": [
+        {
+            "title": "Kotka-kokoelmienhallintajärjestelmä",
+            "url": "https://info.laji.fi/etusivu/kotka-kokoelmienhallintajarjestelma/"
+        },
+        {
+            "title": "Collection Management System",
+            "url": "https://info.laji.fi/en/frontpage/collection-management-system/"
+        },
+        {
+            "title": "Presentations",
+            "url": "https://info.laji.fi/en/frontpage/mission/presentations/"
+        },
+        {
+            "title": "Palvelujen esittely",
+            "url": "https://info.laji.fi/etusivu/palvelujen-esittely/"
+        },
+        {
+            "title": "OGC API Features Overview",
+            "url": "https://info.laji.fi/en/frontpage/spatial-data/spatial-data-services/ogc-api-instructions/"
+        }
+    ]
 }
 ```
 

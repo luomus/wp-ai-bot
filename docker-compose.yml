@@ -16,7 +16,7 @@ services:
       - embeddings_cache:/app/cache   # persist embeddings across container restarts
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
+      interval: 300s
       timeout: 10s
       start_period: 120s       # give the startup routine enough time to fetch + embed
       retries: 3
