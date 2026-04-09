@@ -1,7 +1,8 @@
 # WordPress AI Chatbot – Backend
 
-Answers questions in **Finnish** using only the content fetched from
-[info.laji.fi](https://info.laji.fi) WordPress pages.
+Answers questions in **Finnish** using content fetched from
+[info.laji.fi](https://info.laji.fi) WordPress pages plus external metadata from
+http://rs.laji.fi/terms and term definitions on tun.fi.
 
 ---
 
@@ -11,6 +12,8 @@ Answers questions in **Finnish** using only the content fetched from
 WordPress REST API
        │
    fetch_pages()          – paginated fetch, published pages only
+       │
+   fetch_external_term_sources() – fetch field metadata from rs.laji.fi and tun.fi
        │
    clean_html()           – strip tags, normalise whitespace
        │

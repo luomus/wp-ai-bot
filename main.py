@@ -36,6 +36,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 WP_API_BASE = "https://info.laji.fi/wp-json/wp/v2/pages"
+EXTERNAL_TERMS_LIST_URL = "http://rs.laji.fi/terms?format=JSON"
+
 # Honour CACHE_DIR env var so Docker can mount a persistent volume there
 _cache_dir = Path(os.environ.get("CACHE_DIR", "."))
 _cache_dir.mkdir(parents=True, exist_ok=True)
@@ -106,6 +108,142 @@ def fetch_pages() -> list[dict]:
 
     logger.info("Fetched %d published pages from WordPress.", len(pages))
     return pages
+
+# ---------------------------------------------------------------------------
+# External term metadata sources
+# ---------------------------------------------------------------------------
+
+def fetch_external_term_urls() -> list[str]:
+    """Fetch the list of available term definitions from rs.laji.fi."""
+    try:
+        resp = requests.get(EXTERNAL_TERMS_LIST_URL, headers={"Accept": "application/json"}, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        terms = data.get("terms") if isinstance(data, dict) else []
+        if not isinstance(terms, list):
+            logger.warning("Unexpected term list format from %s", EXTERNAL_TERMS_LIST_URL)
+            return []
+        return [str(term) for term in terms if term]
+    except requests.RequestException as exc:
+        logger.warning("Failed to fetch external term list: %s", exc)
+        return []
+    except ValueError as exc:
+        logger.warning("Failed to parse external term list JSON: %s", exc)
+        return []
+
+
+def _format_language_strings(items: list[dict]) -> str:
+    lines = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        label = item.get("@value") or item.get("value")
+        language = item.get("@language")
+        if label is None:
+            continue
+        if language:
+            lines.append(f"- {language}: {label}")
+        else:
+            lines.append(f"- {label}")
+    return "\n".join(lines)
+
+
+def _term_json_to_text(data: dict) -> str:
+    """Convert a term JSON object into plain-text content for embeddings."""
+    lines = []
+    lines.append(f"Term URL: {data.get('@id', '')}")
+    if data.get("@type"):
+        lines.append(f"Type: {data['@type']}")
+
+    term_name = data.get("HBDF.name")
+    if term_name:
+        lines.append(f"Field name: {term_name}")
+
+    if data.get("label"):
+        lines.append("Labels:")
+        lines.append(_format_language_strings(data["label"]))
+
+    if data.get("HBDF.definition"):
+        lines.append("Definitions:")
+        lines.append(_format_language_strings(data["HBDF.definition"]))
+
+    if data.get("HBDF.notes"):
+        lines.append("Notes:")
+        lines.append(_format_language_strings(data["HBDF.notes"]))
+
+    if data.get("HBDF.apiField"):
+        lines.append(f"API field: {data['HBDF.apiField']}")
+
+    if data.get("HBDF.externalProperty"):
+        lines.append(f"External property: {data['HBDF.externalProperty']}")
+
+    if data.get("HBDF.examples"):
+        lines.append("Examples:")
+        for example in data["HBDF.examples"]:
+            lines.append(f"- {example}")
+
+    if data.get("sortOrder"):
+        lines.append(f"Sort order: {data['sortOrder']}")
+
+    return "\n".join(lines).strip()
+
+
+def _term_title_from_json(data: dict, url: str) -> str:
+    if label := data.get("label"):
+        if isinstance(label, list):
+            for item in label:
+                if isinstance(item, dict) and item.get("@language") == "fi":
+                    return f"{item.get('@value', url)} ({data.get('HBDF.name', '')})"
+            first_label = label[0]
+            if isinstance(first_label, dict) and first_label.get("@value"):
+                return f"{first_label.get('@value')} ({data.get('HBDF.name', '')})"
+    if name := data.get("HBDF.name"):
+        return f"Term: {name}"
+    return url
+
+
+def _build_terms_list_source(term_urls: list[str]) -> dict:
+    lines = [
+        "Finnish Laji.fi term list retrieved from rs.laji.fi/terms?format=JSON.",
+        "This list contains all allowed field names and metadata term URLs used in the download content.",
+        "",
+        "Available term URLs:",
+    ]
+    lines.extend(f"- {url}" for url in term_urls)
+    return {
+        "title": "Terms list and allowed values",
+        "url": EXTERNAL_TERMS_LIST_URL,
+        "content": "\n".join(lines),
+    }
+
+
+def fetch_external_term_sources() -> list[dict]:
+    """Fetch term metadata sources and convert them into text documents."""
+    term_urls = fetch_external_term_urls()
+    if not term_urls:
+        return []
+
+    sources = [_build_terms_list_source(term_urls)]
+    for term_url in term_urls:
+        json_url = term_url
+        if not json_url.endswith("?format=json") and not json_url.endswith("&format=json"):
+            json_url = f"{term_url}?format=json" if "?" not in term_url else f"{term_url}&format=json"
+        try:
+            resp = requests.get(json_url, headers={"Accept": "application/json"}, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            sources.append({
+                "title": _term_title_from_json(data, term_url),
+                "url": term_url,
+                "content": _term_json_to_text(data),
+            })
+        except requests.RequestException as exc:
+            logger.warning("Failed to fetch term definition %s: %s", term_url, exc)
+        except ValueError as exc:
+            logger.warning("Failed to parse term JSON from %s: %s", term_url, exc)
+    logger.info("Fetched %d external term sources.", len(sources))
+    return sources
+
 
 # ---------------------------------------------------------------------------
 # Step 2 – Clean HTML content
@@ -220,10 +358,14 @@ def build_faiss_index(matrix: np.ndarray) -> faiss.IndexFlatIP:
 # Step 5b – Cache helpers
 # ---------------------------------------------------------------------------
 
-def _pages_fingerprint(pages: list[dict]) -> str:
-    """Compute a stable hash of page titles + URLs to detect stale caches."""
+def _sources_fingerprint(pages: list[dict], extra_urls: Optional[list[str]] = None) -> str:
+    """Compute a stable fingerprint for WordPress pages plus extra data sources."""
     key = json.dumps(
-        [{"title": p["title"], "url": p["url"]} for p in pages],
+        [
+            {"title": p["title"], "url": p["url"]} for p in pages
+        ] + [
+            {"url": u} for u in (extra_urls or [])
+        ],
         ensure_ascii=False,
     )
     return hashlib.sha256(key.encode()).hexdigest()
@@ -387,7 +529,9 @@ async def startup_event() -> None:
         logger.warning("No pages fetched; the /ask endpoint will return empty answers.")
         return
 
-    fingerprint = _pages_fingerprint(pages)
+    term_sources = fetch_external_term_sources()
+    extra_urls = [source["url"] for source in term_sources]
+    fingerprint = _sources_fingerprint(pages, extra_urls)
     cache = load_cache()
 
     if cache and cache.get("fingerprint") == fingerprint:
@@ -397,12 +541,17 @@ async def startup_event() -> None:
     else:
         logger.info("Cache miss or stale. Building embeddings from scratch …")
 
-        # Clean and chunk all pages
+        # Clean and chunk all pages and term metadata sources
         all_chunks: list[dict] = []
         for page in pages:
             plain_text = clean_html(page["content"])
             page_chunks = chunk_text(plain_text, page["title"], page["url"])
             all_chunks.extend(page_chunks)
+
+        for source in term_sources:
+            source_text = source["content"]
+            source_chunks = chunk_text(source_text, source["title"], source["url"])
+            all_chunks.extend(source_chunks)
 
         logger.info("Total chunks to embed: %d", len(all_chunks))
 
@@ -461,15 +610,24 @@ async def refresh() -> dict:
     if not pages:
         raise HTTPException(status_code=502, detail="Could not fetch any pages.")
 
+    term_sources = fetch_external_term_sources()
+    extra_urls = [source["url"] for source in term_sources]
+    fingerprint = _sources_fingerprint(pages, extra_urls)
+
     all_chunks: list[dict] = []
     for page in pages:
         plain_text = clean_html(page["content"])
         page_chunks = chunk_text(plain_text, page["title"], page["url"])
         all_chunks.extend(page_chunks)
 
+    for source in term_sources:
+        source_text = source["content"]
+        source_chunks = chunk_text(source_text, source["title"], source["url"])
+        all_chunks.extend(source_chunks)
+
     matrix, _chunks = create_embeddings(all_chunks)
     save_cache({
-        "fingerprint": _pages_fingerprint(pages),
+        "fingerprint": fingerprint,
         "chunks": _chunks,
         "matrix": matrix,
     })
