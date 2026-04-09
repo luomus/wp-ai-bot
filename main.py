@@ -20,8 +20,11 @@ import requests
 import faiss
 import numpy as np
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import openai
 from pydantic import BaseModel
 
@@ -345,11 +348,17 @@ def generate_answer(query: str, relevant_chunks: list[dict]) -> AnswerResponse:
 # Application startup – load / build index
 # ---------------------------------------------------------------------------
 
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address, default_limits=["20/hour"])
+
 app = FastAPI(
     title="WordPress AI Chatbot",
     description="Answers questions based solely on WordPress page content.",
     version="1.0.0",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, lambda request, exc: HTTPException(status_code=429, detail="Rate limit exceeded. Max 5 requests per minute."))
 
 app.add_middleware(
     CORSMiddleware,
@@ -409,7 +418,8 @@ async def startup_event() -> None:
 # ---------------------------------------------------------------------------
 
 @app.get("/ask", response_model=AnswerResponse)
-async def ask(q: str = Query(..., min_length=2, description="Question to ask the chatbot")) -> AnswerResponse:
+@limiter.limit("5/minute")
+async def ask(request: Request, q: str = Query(..., min_length=2, description="Question to ask the chatbot")) -> AnswerResponse:
     """
     Embed the query, retrieve the most relevant WordPress page chunks,
     and return an LLM-generated answer in Finnish together with source URLs.

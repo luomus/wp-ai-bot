@@ -1,0 +1,169 @@
+apiVersion: v1
+kind: Template
+metadata:
+  name: wp-ai-bot
+  annotations:
+    description: "WordPress AI Chatbot Backend - OpenShift Deployment"
+    displayName: "WP AI Bot"
+    version: "1.0"
+
+parameters:
+- name: APP_NAME
+  displayName: Application Name
+  description: The name of the application
+  value: wp-ai-bot
+  required: true
+
+- name: OPENAI_API_KEY
+  displayName: OpenAI API Key
+  description: API key for OpenAI service
+  required: true
+
+objects:
+
+# ============================================================================
+# Secret for sensitive data
+# ============================================================================
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    name: ${APP_NAME}-secrets
+    labels:
+      app: ${APP_NAME}
+  type: Opaque
+  stringData:
+    openai-api-key: ${OPENAI_API_KEY}
+
+# ============================================================================
+# PersistentVolumeClaim for embeddings cache
+# ============================================================================
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: ${APP_NAME}-cache-pvc
+    labels:
+      app: ${APP_NAME}
+  spec:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 1Gi
+
+# ============================================================================
+# Deployment
+# ============================================================================
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: ${APP_NAME}
+    labels:
+      app: ${APP_NAME}
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: ${APP_NAME}
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 1
+        maxUnavailable: 0
+    template:
+      metadata:
+        labels:
+          app: ${APP_NAME}
+      spec:
+        containers:
+        - name: ${APP_NAME}
+          image: "ghcr.io/YOUR-GITHUB-USERNAME/wp-ai-bot:latest"
+          imagePullPolicy: Always
+          ports:
+          - containerPort: 8000
+            name: http
+            protocol: TCP
+          env:
+          - name: OPENAI_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: ${APP_NAME}-secrets
+                key: openai-api-key
+          - name: CACHE_DIR
+            value: "/app/cache"
+          volumeMounts:
+          - name: cache-volume
+            mountPath: /app/cache
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+              - ALL
+        volumes:
+        - name: cache-volume
+          persistentVolumeClaim:
+            claimName: ${APP_NAME}-cache-pvc
+        restartPolicy: Always
+
+# ============================================================================
+# Service
+# ============================================================================
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${APP_NAME}
+    labels:
+      app: ${APP_NAME}
+  spec:
+    type: ClusterIP
+    ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+    selector:
+      app: ${APP_NAME}
+
+# ============================================================================
+# Route (OpenShift-specific)
+# ============================================================================
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: ${APP_NAME}
+    labels:
+      app: ${APP_NAME}
+  spec:
+    to:
+      kind: Service
+      name: ${APP_NAME}
+    port:
+      targetPort: 8000
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect

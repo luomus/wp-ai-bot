@@ -1,0 +1,94 @@
+<!--
+This is a simple HTML widget for embedding the AI bot in a WordPress site.
+Paste this code into a Custom HTML block in the WordPress editor. Make sure to update the `apiBase` variable to point to your deployed backend API.
+-->
+
+<div id="wpai-chat">
+  <div id="messages" style="height:300px; overflow:auto; border:1px solid #ddd; padding:8px; background:#f9f9f9;"></div>
+  <div style="margin-top:8px; display:flex; gap:4px;">
+    <input id="user-input" style="flex:1; padding:6px;" placeholder="Kysy jotain... (min 3, max 500 merkkiä)" />
+    <button id="send-btn" style="padding:6px 12px; cursor:pointer;">Lähetä</button>
+    <button id="clear-btn" style="padding:6px 12px; cursor:pointer;">Tyhjennä</button>
+  </div>
+  <div id="error-msg" style="color:red; font-size:12px; margin-top:4px; display:none;"></div>
+</div>
+
+<script>
+const apiBase = "http://localhost:8000"; // or your deployed host
+const MIN_LENGTH = 3;
+const MAX_LENGTH = 500;
+
+function escapeHtml(text) {
+  const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" };
+  return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+function showError(msg) {
+  const errDiv = document.getElementById("error-msg");
+  errDiv.textContent = msg;
+  errDiv.style.display = "block";
+  setTimeout(() => { errDiv.style.display = "none"; }, 3000);
+}
+
+function validateInput(q) {
+  if (!q || q.length === 0) {
+    showError("Kysymys ei voi olla tyhjä.");
+    return false;
+  }
+  if (q.length < MIN_LENGTH) {
+    showError(`Kysymys on liian lyhyt. Vähintään ${MIN_LENGTH} merkkiä.`);
+    return false;
+  }
+  if (q.length > MAX_LENGTH) {
+    showError(`Kysymys on liian pitkä. Enintään ${MAX_LENGTH} merkkiä.`);
+    return false;
+  }
+  return true;
+}
+
+function appendMessage(sender, text) {
+  const d = document.createElement("div");
+  d.style.marginBottom = "8px";
+  d.innerHTML = `<strong>${sender}:</strong> ${escapeHtml(text)}`;
+  document.getElementById("messages").appendChild(d);
+  document.getElementById("messages").scrollTop = 1e9;
+}
+
+document.getElementById("send-btn").onclick = async () => {
+  const q = document.getElementById("user-input").value.trim();
+  if (!validateInput(q)) return;
+  
+  clearChat();
+  appendMessage("Sinä", q);
+  document.getElementById("user-input").value = "";
+  appendMessage("Bot", "kirjoittaa...");
+  
+  try {
+    const r = await fetch(`${apiBase}/ask?q=${encodeURIComponent(q)}`);
+    const j = await r.json();
+    const msgs = document.getElementById("messages");
+    msgs.lastChild.innerHTML = `<strong>Bot:</strong> ${escapeHtml(j.answer)}`;
+    if (j.sources?.length)
+      msgs.appendChild(Object.assign(document.createElement("div"), {
+        style: "margin-top:8px; font-size:12px;",
+        innerHTML: "<em>Lähteet:</em> " + j.sources.map(s=>`<a href='${escapeHtml(s.url)}' target='_blank'>${escapeHtml(s.title)}</a>`).join(", ")
+      }));
+  } catch (err) {
+    appendMessage("Bot", "Virhe: " + err.message);
+  }
+};
+
+function clearChat() {
+  document.getElementById("messages").innerHTML = "";
+  document.getElementById("error-msg").style.display = "none";
+}
+
+document.getElementById("clear-btn").onclick = clearChat;
+
+document.getElementById("user-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    document.getElementById("send-btn").onclick();
+  }
+});
+</script>
