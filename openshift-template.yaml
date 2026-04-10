@@ -118,7 +118,6 @@ objects:
               memory: 1Gi
           securityContext:
             runAsNonRoot: true
-            runAsUser: 1001
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
             capabilities:
