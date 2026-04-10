@@ -76,7 +76,7 @@ objects:
       spec:
         containers:
         - name: ${APP_NAME}
-          image: "ghcr.io/YOUR-GITHUB-USERNAME/wp-ai-bot:latest"
+          image: "ghcr.io/luomus/wp-ai-bot:latest"
           imagePullPolicy: Always
           ports:
           - containerPort: 8000

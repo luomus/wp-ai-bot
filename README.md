@@ -1,8 +1,8 @@
 # WordPress AI Chatbot – Backend
 
 Answers questions in **Finnish** using content fetched from
-[info.laji.fi](https://info.laji.fi) WordPress pages plus external metadata from
-http://rs.laji.fi/terms and term definitions on tun.fi.
+[info.laji.fi](https://info.laji.fi) WordPress pages plus external metadata
+sources such as rs.laji.fi and tun.fi.
 
 ---
 
@@ -36,7 +36,7 @@ GET /ask?q=…
 
 ## Quick start
 
-### Option A – Docker Compose (recommended)
+### Option A – Docker Compose (local)
 
 #### 1. Prerequisites
 
@@ -64,6 +64,29 @@ the API. Subsequent starts load from the `embeddings_cache` volume instantly.
 curl "http://localhost:8000/ask?q=Mikä+on+kotka?"
 ```
 
+- Use `wp-widget.html` to embed the chat UI in a WordPress custom HTML block.
+
+## Option B - OpenShift (not local)
+
+1. Login and select project:
+
+```powershell
+oc login <cluster-url> --token=<token>
+oc project <your-project>
+```
+
+2. Process and apply the template:
+
+```powershell
+oc process -f openshift-template.yaml -p OPENAI_API_KEY=<your-key> | oc apply -f -
+```
+
+3. Verify resources:
+
+```powershell
+oc get all
+oc get routes
+```
 
 ## API reference
 
@@ -72,7 +95,7 @@ curl "http://localhost:8000/ask?q=Mikä+on+kotka?"
 Ask a question. The model answers in Finnish using only the WordPress content.
 
 ```bash
-curl "http://localhost:8000/ask?q=Mikä+on+laji.fi?"
+curl "http://localhost:8000/ask?q=Mikä+on+kotka?"
 ```
 
 **Response**
@@ -164,6 +187,7 @@ wp-ai-bot/
 ├── .dockerignore            # Keeps the build context lean
 ├── .env.example             # API key template – commit this
 ├── .gitignore               # Excludes .env, cache, venvs
+├── wp-widget.html           # WordPress embed widget
 └── README.md                # This file
 ```
 
@@ -171,14 +195,3 @@ wp-ai-bot/
 Docker named volume (or in the project root for local runs). It is safe to delete.
 
 ---
-
-## Security notes
-
-- Never commit `.env` or `embeddings_cache.pkl` to version control.
-- Add both to `.gitignore`:
-  ```
-  .env
-  embeddings_cache.pkl
-  ```
-- The `POST /refresh` endpoint rebuilds the entire index; protect it behind
-  authentication or restrict it to internal networks in production.
