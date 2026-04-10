@@ -46,6 +46,7 @@ CHUNK_SIZE_WORDS = 400       # Target words per chunk
 CHUNK_OVERLAP_WORDS = 50     # Overlap between consecutive chunks
 TOP_K = int(os.environ.get("TOP_K", "5"))  # Number of chunks to retrieve per query (env configurable)
 MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.2"))  # Minimal similarity score for strong hits
+REQUEST_LIMIT = int(os.environ.get("REQUEST_LIMIT", "1000"))  # Maximum API requests allowed (env configurable)
 EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI embedding model
 CHAT_MODEL = "gpt-4o-mini"
 
@@ -512,6 +513,7 @@ app.add_middleware(
 # Global state initialised at startup
 _faiss_index: Optional[faiss.IndexFlatIP] = None
 _chunks: list[dict] = []
+request_count = 0
 
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -573,6 +575,15 @@ async def ask(request: Request, q: str = Query(..., min_length=2, description="Q
     Embed the query, retrieve the most relevant WordPress page chunks,
     and return an LLM-generated answer in Finnish together with source URLs.
     """
+    global request_count
+    request_count += 1
+
+    if request_count > REQUEST_LIMIT:
+        return AnswerResponse(
+            answer="Maksimimäärä pyyntöjä on saavutettu. Ota yhteyttä lajitietokeskus staffiin rajan nollaamiseksi.",
+            sources=[],
+        )
+
     if _faiss_index is None or not _chunks:
         raise HTTPException(
             status_code=503,
@@ -592,45 +603,3 @@ async def health() -> dict:
         "index_ready": _faiss_index is not None,
     }
 
-
-@app.post("/refresh")
-async def refresh() -> dict:
-    """
-    Force a full re-fetch and re-embedding of all WordPress pages.
-    Deletes the cache file so the next startup (or this call) rebuilds everything.
-    """
-    global _faiss_index, _chunks
-
-    if CACHE_FILE.exists():
-        CACHE_FILE.unlink()
-        logger.info("Cache file deleted.")
-
-    logger.info("Re-fetching pages and rebuilding index …")
-    pages = fetch_pages()
-    if not pages:
-        raise HTTPException(status_code=502, detail="Could not fetch any pages.")
-
-    term_sources = fetch_external_term_sources()
-    extra_urls = [source["url"] for source in term_sources]
-    fingerprint = _sources_fingerprint(pages, extra_urls)
-
-    all_chunks: list[dict] = []
-    for page in pages:
-        plain_text = clean_html(page["content"])
-        page_chunks = chunk_text(plain_text, page["title"], page["url"])
-        all_chunks.extend(page_chunks)
-
-    for source in term_sources:
-        source_text = source["content"]
-        source_chunks = chunk_text(source_text, source["title"], source["url"])
-        all_chunks.extend(source_chunks)
-
-    matrix, _chunks = create_embeddings(all_chunks)
-    save_cache({
-        "fingerprint": fingerprint,
-        "chunks": _chunks,
-        "matrix": matrix,
-    })
-    _faiss_index = build_faiss_index(matrix)
-
-    return {"status": "refreshed", "chunks_indexed": len(_chunks)}

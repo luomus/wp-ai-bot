@@ -136,17 +136,6 @@ Returns index readiness and the number of indexed chunks.
 curl http://localhost:8000/health
 ```
 
-### `POST /refresh`
-
-Force a full re-fetch and re-embedding (deletes the cache). Use this after the
-WordPress content has changed significantly.
-
-```bash
-curl -X POST http://localhost:8000/refresh
-```
-
----
-
 ## Configuration
 
 All tuneable constants live at the top of `main.py`:
@@ -168,8 +157,6 @@ All tuneable constants live at the top of `main.py`:
 - On startup, a SHA-256 fingerprint of all page titles + URLs is compared against the cached fingerprint.
 - If they match, embeddings are loaded from disk — no API calls are made.
 - If they differ (new/deleted/renamed pages), the full pipeline runs and the cache is refreshed.
-- Use `POST /refresh` to force a rebuild at any time.
-
 ---
 
 | `CACHE_DIR` | `.` (local) / `/app/cache` (Docker) | Directory for the cache file |
