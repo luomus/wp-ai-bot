@@ -28,12 +28,15 @@ from slowapi.errors import RateLimitExceeded
 import openai
 from pydantic import BaseModel
 
+from access_log import AccessLogFilter
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+logging.getLogger("uvicorn.access").addFilter(AccessLogFilter())
 
 WP_API_BASE = "https://info.laji.fi/wp-json/wp/v2/pages"
 EXTERNAL_TERMS_LIST_URL = "http://rs.laji.fi/terms?format=JSON"

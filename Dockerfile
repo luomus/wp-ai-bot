@@ -25,7 +25,7 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 
 # Copy application source
-COPY main.py .
+COPY main.py access_log.py ./
 
 # The cache file is stored in a named volume mounted at /app/cache
 ENV CACHE_DIR=/app/cache
